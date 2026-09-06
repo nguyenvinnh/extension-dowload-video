@@ -161,6 +161,32 @@ body {
   margin-bottom: 8px;
 }
 
+.card-badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Badge "MỚI" — video vừa phát hiện real-time */
+.new-badge {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, #ef4444, #f97316);
+  color: #ffffff;
+  animation: pulse-new 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse-new {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+
 .video-title {
   font-size: 13px;
   font-weight: 600;

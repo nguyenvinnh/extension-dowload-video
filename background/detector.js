@@ -1,7 +1,8 @@
 import { tabManager } from './tab-manager.js';
 
 /**
- * Detector: Bắt và lọc các yêu cầu mạng chứa video (MP4, WEBM, M3U8)
+ * NetworkDetector: Bắt và lọc các yêu cầu mạng chứa video (MP4, WEBM, M3U8)
+ * Đã cải thiện: thêm log chi tiết, gửi MEDIA_DETECTED message để trigger real-time push
  */
 class NetworkDetector {
   constructor() {
@@ -9,6 +10,8 @@ class NetworkDetector {
   }
 
   init() {
+    console.log('[VDP-Detector] 🎯 NetworkDetector khởi động, lắng nghe webRequest...');
+
     chrome.webRequest.onHeadersReceived.addListener(
       (details) => this.handleHeadersReceived(details),
       { urls: ['<all_urls>'] },
@@ -17,7 +20,6 @@ class NetworkDetector {
   }
 
   handleHeadersReceived(details) {
-    // Chỉ xử lý các request từ tab chính (tabId >= 0) và loại GET / POST
     if (!details || details.tabId < 0) return;
 
     const url = details.url;
@@ -44,14 +46,33 @@ class NetworkDetector {
       contentType.includes('application/x-mpegurl') ||
       contentType.includes('application/vnd.apple.mpegurl')
     ) {
-      tabManager.addMedia(details.tabId, {
+      console.log(`[VDP-Detector] 🎬 M3U8 phát hiện tab=${details.tabId}:`, url.substring(0, 100));
+
+      const item = tabManager.addMedia(details.tabId, {
         url: details.url,
         type: 'HLS',
         format: 'M3U8',
         mimeType: contentType || 'application/x-mpegURL',
-        sizeBytes: contentLength
+        sizeBytes: contentLength,
+        timestamp: Date.now()
       });
-      this.updateBadge(details.tabId);
+
+      if (item) {
+        this.updateBadge(details.tabId);
+
+        // Gửi message để service-worker push tới popup (real-time)
+        chrome.runtime.sendMessage({
+          action: 'MEDIA_DETECTED',
+          tabId: details.tabId,
+          mediaData: {
+            url: details.url,
+            type: 'HLS',
+            format: 'M3U8',
+            mimeType: contentType || 'application/x-mpegURL',
+            sizeBytes: contentLength
+          }
+        }).catch(() => {});
+      }
       return;
     }
 
@@ -63,19 +84,38 @@ class NetworkDetector {
       contentType.startsWith('video/webm')
     ) {
       // Bỏ qua các đoạn video quá nhỏ (dưới 50KB) - thường là icon hoặc đoạn nhúng rác
-      if (contentLength > 0 && contentLength < 50 * 1024) return;
+      if (contentLength > 0 && contentLength < 50 * 1024) {
+        console.log(`[VDP-Detector] ⏭️ Bỏ qua file nhỏ (<50KB) tab=${details.tabId}:`, url.substring(0, 80));
+        return;
+      }
 
       const format = cleanUrl.endsWith('.webm') || contentType.includes('webm') ? 'WEBM' : 'MP4';
+      console.log(`[VDP-Detector] 🎬 ${format} phát hiện tab=${details.tabId}:`, url.substring(0, 100));
 
-      tabManager.addMedia(details.tabId, {
+      const item = tabManager.addMedia(details.tabId, {
         url: details.url,
         type: 'DIRECT',
         format: format,
         mimeType: contentType || `video/${format.toLowerCase()}`,
-        sizeBytes: contentLength
+        sizeBytes: contentLength,
+        timestamp: Date.now()
       });
 
-      this.updateBadge(details.tabId);
+      if (item) {
+        this.updateBadge(details.tabId);
+
+        chrome.runtime.sendMessage({
+          action: 'MEDIA_DETECTED',
+          tabId: details.tabId,
+          mediaData: {
+            url: details.url,
+            type: 'DIRECT',
+            format: format,
+            mimeType: contentType || `video/${format.toLowerCase()}`,
+            sizeBytes: contentLength
+          }
+        }).catch(() => {});
+      }
       return;
     }
   }
@@ -85,7 +125,7 @@ class NetworkDetector {
     const count = list.length;
     if (count > 0) {
       chrome.action.setBadgeText({ tabId: tabId, text: count.toString() });
-      chrome.action.setBadgeBackgroundColor({ tabId: tabId, color: '#10B981' }); // Green badge
+      chrome.action.setBadgeBackgroundColor({ tabId: tabId, color: '#10B981' });
     } else {
       chrome.action.setBadgeText({ tabId: tabId, text: '' });
     }

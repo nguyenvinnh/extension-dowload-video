@@ -1,6 +1,7 @@
 /**
- * TabManager: Quản lý và lưu trữ bộ nhớ media theo từng Tab (dùng chrome.storage.session)
- * Tự động bảo tồn danh sách video đã quét được cho đến khi người dùng đóng Tab hoặc chuyển trang.
+ * TabManager: Quản lý và lưu trữ bộ nhớ media theo từng Tab
+ * - Lưu trữ theo timestamp để sắp xếp video mới nhất lên đầu
+ * - Tự động bảo tồn danh sách video đã quét cho đến khi Tab đóng hoặc chuyển trang
  */
 
 class TabManager {
@@ -23,12 +24,13 @@ class TabManager {
               const map = new Map();
               val.forEach((item) => map.set(item.url, item));
               this.tabMediaStore.set(tabId, map);
+              console.log(`[VDP-TabManager] 🔄 Phục hồi ${val.length} mục từ storage cho tab=${tabId}`);
             }
           }
         }
       }
     } catch (e) {
-      console.warn('[TabManager] Lỗi khôi phục dữ liệu từ storage:', e);
+      console.warn('[VDP-TabManager] Lỗi khôi phục dữ liệu từ storage:', e);
     }
   }
 
@@ -41,19 +43,21 @@ class TabManager {
         await storageArea.set({ [`tab_media_${tabId}`]: mediaList });
       }
     } catch (e) {
-      console.warn('[TabManager] Lỗi lưu dữ liệu storage:', e);
+      console.warn('[VDP-TabManager] Lỗi lưu dữ liệu storage:', e);
     }
   }
 
   initListeners() {
     // Xóa bộ nhớ khi Tab bị đóng
     chrome.tabs.onRemoved.addListener((tabId) => {
+      console.log(`[VDP-TabManager] 🗑 Tab ${tabId} đóng → Xóa bộ nhớ`);
       this.clearTab(tabId);
     });
 
     // Xóa bộ nhớ khi Tab chuyển hướng URL khác (chỉ khi thực sự đổi URL trang)
     chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
       if (changeInfo.status === 'loading' && changeInfo.url) {
+        console.log(`[VDP-TabManager] 🔄 Tab ${tabId} chuyển trang → Xóa bộ nhớ cũ`);
         this.clearTab(tabId);
       }
     });
@@ -61,6 +65,7 @@ class TabManager {
 
   /**
    * Thêm hoặc cập nhật một mục media vào Tab tương ứng
+   * Trả về item nếu là mục MỚI (chưa tồn tại), null nếu chỉ update
    */
   addMedia(tabId, mediaData) {
     if (!tabId || tabId <= 0 || !mediaData || !mediaData.url) return null;
@@ -72,6 +77,7 @@ class TabManager {
     const store = this.tabMediaStore.get(tabId);
     const existing = store.get(mediaData.url);
     let item;
+    let isNew = false;
 
     if (existing) {
       // Cập nhật thông tin bổ sung nếu có (duration, resolution, title...)
@@ -87,31 +93,41 @@ class TabManager {
       if (mediaData.segmentCount) {
         existing.segmentCount = mediaData.segmentCount;
       }
+      // Cập nhật timestamp lên mới nhất khi có thêm thông tin
+      existing.lastUpdated = Date.now();
       item = existing;
     } else {
+      // Mục mới - tạo object đầy đủ
+      isNew = true;
       item = {
         id: 'vid_' + Math.random().toString(36).substr(2, 9),
         url: mediaData.url,
-        type: mediaData.type || 'DIRECT', // 'DIRECT' | 'HLS'
-        format: mediaData.format || 'MP4', // 'MP4' | 'WEBM' | 'M3U8'
+        type: mediaData.type || 'DIRECT',
+        format: mediaData.format || 'MP4',
         title: mediaData.title || this.extractFilename(mediaData.url),
         duration: mediaData.duration || 0,
         resolution: mediaData.resolution || 'N/A',
         sizeBytes: mediaData.sizeBytes || 0,
         segmentCount: mediaData.segmentCount || 0,
         mimeType: mediaData.mimeType || '',
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        lastUpdated: Date.now()
       };
       store.set(mediaData.url, item);
     }
 
     this.persistTab(tabId);
-    return item;
+    return isNew ? item : null; // Chỉ trả về item mới để trigger notification
   }
 
+  /**
+   * Lấy danh sách media, sắp xếp mới nhất lên đầu (theo timestamp)
+   */
   getMediaListSync(tabId) {
     if (!tabId || !this.tabMediaStore.has(tabId)) return [];
-    return Array.from(this.tabMediaStore.get(tabId).values());
+    const list = Array.from(this.tabMediaStore.get(tabId).values());
+    // Sắp xếp: mới nhất (timestamp lớn nhất) lên đầu
+    return list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   }
 
   async getMediaListAsync(tabId) {
@@ -130,11 +146,12 @@ class TabManager {
           const map = new Map();
           list.forEach((item) => map.set(item.url, item));
           this.tabMediaStore.set(tabId, map);
-          return list;
+          // Sắp xếp trước khi trả về
+          return list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         }
       }
     } catch (e) {
-      console.warn('[TabManager] Lỗi đọc storage async:', e);
+      console.warn('[VDP-TabManager] Lỗi đọc storage async:', e);
     }
 
     return [];
