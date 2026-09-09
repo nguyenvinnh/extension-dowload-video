@@ -1,146 +1,208 @@
 import { M3U8Parser } from '../lib/m3u8-parser.js';
-import { TSToMP4Converter } from '../lib/ts-to-mp4.js';
 import { sanitizeFilename } from './formatters.js';
+import { BufferUtils } from './buffer-utils.js';
+import { StreamInspector } from './stream-inspector.js';
+import { AESDecryptor } from './aes-decryptor.js';
+import { FetchProxy } from './fetch-proxy.js';
+import { FMP4Builder } from './fmp4-builder.js';
+import { TSBuilder } from './ts-builder.js';
 
-/**
- * M3U8Downloader: Xử lý tải đa luồng các đoạn .ts, ghép lại và lưu file MP4
- */
 export class M3U8Downloader {
   constructor() {
     this.isAborted = false;
-    this.concurrency = 4; // Tải song song 4 luồng cùng lúc
+    this.concurrency = 4;
+    this.fetchProxy = new FetchProxy();
+    this.aesDecryptor = new AESDecryptor((url, isKey) => this.fetchProxy.fetchRaw(url, isKey));
+    this._originalM3U8Url = null;
   }
 
-  abort() {
-    this.isAborted = true;
-  }
+  abort() { this.isAborted = true; }
 
-  async download(m3u8Url, title = 'video_stream', onProgress = () => {}, options = {}) {
+  async download(m3u8Url, title = 'video_stream', onProgress = () => { }, options = {}) {
     this.isAborted = false;
+    this.aesDecryptor.clearCache();
+    this._originalM3U8Url = m3u8Url;
 
-    onProgress({ status: 'parsing', percent: 0, message: 'Đang đọc playlist M3U8...' });
+    const tab = await this.fetchProxy.getActiveTab();
+    const tabId = options.tabId || tab?.id || null;
+    const tabUrl = options.tabUrl || options.referer || tab?.url || null;
+    const referer = options.referer || options.tabUrl || tab?.url || null;
 
-    // 1. Phân tích M3U8 Playlist
-    const playlist = await M3U8Parser.parse(m3u8Url);
-    let segments = playlist.segments;
+    this.fetchProxy.setTabInfo(tabId, tabUrl, referer);
+    await this.fetchProxy.ensureRefererRule();
 
-    if (!segments || segments.length === 0) {
-      throw new Error('Không tìm thấy đoạn video nào trong playlist M3U8');
+    console.log(`[VDP-M3U8] 🎬 Bắt đầu tải M3U8: ${m3u8Url}`);
+    onProgress({ status: 'parsing', percent: 0, message: 'Đang đọc playlist...' });
+
+    const playlist = await M3U8Parser.parse(m3u8Url, { tabId, tabUrl, referer, headers: options.headers });
+
+    const allSegments = playlist.segments;
+    console.log(`[VDP-M3U8] 📊 ${allSegments?.length || 0} segments, init: ${playlist.initSegmentUrl ? 'có' : 'không'}`);
+
+    if (!allSegments?.length) throw new Error('Playlist không có segment nào');
+    if (playlist.hasDRM) throw new Error('Video DRM SAMPLE-AES không hỗ trợ');
+
+    const timeRanges = options.timeRanges?.length ? options.timeRanges : null;
+    // Lấy outputFormat từ options, mặc định là 'mp4'
+    const outputFormat = options.outputFormat || 'mp4';
+
+    if (!timeRanges) {
+      await this._downloadSegments({ segments: allSegments, title, onProgress, initSegmentUrl: playlist.initSegmentUrl, outputFormat });
+      return;
     }
 
-    // 1.1 Lọc khoảng thời gian (Time Range Clipping) nếu có
-    if (options && Array.isArray(options.timeRanges) && options.timeRanges.length > 0) {
-      const selectedMap = new Map();
-      segments.forEach((seg) => {
-        const isMatched = options.timeRanges.some((range) => {
-          const start = range.startSec != null ? range.startSec : 0;
-          const end = range.endSec != null ? range.endSec : Infinity;
-          return seg.startTime < end && seg.endTime > start;
-        });
-        if (isMatched) {
-          selectedMap.set(seg.index, seg);
-        }
+    for (let ri = 0; ri < timeRanges.length; ri++) {
+      if (this.isAborted) break;
+      const range = timeRanges[ri];
+      const start = Number.isFinite(range.startSec) ? Math.max(0, range.startSec) : 0;
+      const end = Number.isFinite(range.endSec) ? Math.max(start, range.endSec) : Infinity;
+      const label = `clip${ri + 1}_${BufferUtils.formatSeconds(start)}-${BufferUtils.formatSeconds(end)}`;
+      const rangeTitle = `${title}_${label}`;
+      const selected = allSegments.filter((seg) => {
+        const segStart = Number(seg.startTime ?? 0);
+        const segEnd = Number(seg.endTime ?? segStart + Number(seg.duration || 0));
+        return segStart < end && segEnd > start;
       });
-
-      segments = Array.from(selectedMap.values()).sort((a, b) => a.index - b.index);
-
-      if (segments.length === 0) {
-        throw new Error('Không có đoạn video nào thuộc các khoảng thời gian đã chọn');
+      if (!selected.length) {
+        console.warn(`[VDP-M3U8] ⚠️ Không có segment nào trong range ${start}-${end}`);
+        onProgress({ status: 'error', percent: 0, message: `Không có phân đoạn nào trong khoảng ${BufferUtils.formatSeconds(start)}-${BufferUtils.formatSeconds(end)}` });
+        continue;
       }
+      console.log(`[VDP-M3U8] 📌 Range ${ri+1}: chọn ${selected.length} segment (tổng ${allSegments.length})`);
+      const wrapProgress = (p) => {
+        const base = (ri / timeRanges.length) * 100;
+        const step = (1 / timeRanges.length) * 100;
+        onProgress({ ...p, percent: Math.floor(base + ((p.percent || 0) / 100) * step), message: `[${ri + 1}/${timeRanges.length}] ` + (p.message || '') });
+      };
+      await this._downloadSegments({ segments: selected, title: rangeTitle, onProgress: wrapProgress, initSegmentUrl: playlist.initSegmentUrl, clipRange: { start, end }, outputFormat });
     }
 
-    const totalSegments = segments.length;
-    const downloadedBuffers = new Array(totalSegments);
-    let completedCount = 0;
+    if (!this.isAborted) onProgress({ status: 'completed', percent: 100, message: `✅ Đã tải xong ${timeRanges.length} file!` });
+  }
 
-    onProgress({
-      status: 'downloading',
-      percent: 0,
-      loaded: 0,
-      total: totalSegments,
-      message: `Bắt đầu tải ${totalSegments} phân đoạn...`
-    });
+  async _downloadSegments({ segments, title, onProgress, initSegmentUrl, clipRange = null, outputFormat = 'mp4' }) {
+    const total = segments.length;
+    const buffers = new Array(total).fill(null);
+    let completed = 0;
+    let queueIdx = 0;
 
-    // 2. Tải đa luồng song song (Pool Worker)
-    let queueIndex = 0;
+    onProgress({ status: 'downloading', percent: 0, message: `Đang tải ${total} phân đoạn...` });
 
     const worker = async () => {
-      while (queueIndex < totalSegments && !this.isAborted) {
-        const currentIndex = queueIndex++;
-        const segment = segments[currentIndex];
-
+      while (true) {
+        if (this.isAborted) return;
+        const idx = queueIdx++;
+        if (idx >= total) return;
+        const seg = segments[idx];
         try {
-          const res = await fetch(segment.url);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const buffer = await res.arrayBuffer();
-          downloadedBuffers[currentIndex] = buffer;
-
-          completedCount++;
-          const percent = Math.floor((completedCount / totalSegments) * 90); // 0% - 90% cho tải
-
-          onProgress({
-            status: 'downloading',
-            percent: percent,
-            loaded: completedCount,
-            total: totalSegments,
-            message: `Đang tải: ${completedCount}/${totalSegments} đoạn (${percent}%)`
-          });
-        } catch (err) {
-          console.warn(`Lỗi khi tải segment ${currentIndex}, đang thử lại...`, err);
-          // Thử lại 1 lần nếu lỗi mạng tạm thời
-          try {
-            const resRetry = await fetch(segment.url);
-            const bufferRetry = await resRetry.arrayBuffer();
-            downloadedBuffers[currentIndex] = bufferRetry;
-            completedCount++;
-          } catch (e) {
-            throw new Error(`Tải đoạn video ${currentIndex + 1}/${totalSegments} thất bại: ${e.message}`);
+          buffers[idx] = await this._fetchDecryptStrip(seg, idx, total);
+        } catch (e) {
+          // Nếu 403, thử append token từ m3u8 gốc một lần nữa
+          if ((e?.message || '').includes('403') && this._originalM3U8Url) {
+            try {
+              const orig = new URL(this._originalM3U8Url);
+              if (orig.search) {
+                const retryUrl = new URL(seg.url);
+                if (!retryUrl.search) retryUrl.search = orig.search;
+                console.warn(`[VDP-M3U8] Thử retry với token gốc: ${retryUrl.href.substring(0, 100)}`);
+                const retrySeg = { ...seg, url: retryUrl.href };
+                buffers[idx] = await this._fetchDecryptStrip(retrySeg, idx, total, true);
+              } else {
+                throw e;
+              }
+            } catch (retryErr) {
+              throw e; // ném lỗi gốc
+            }
+          } else {
+            throw e;
           }
         }
+        completed++;
+        const pct = Math.floor((completed / total) * 85);
+        onProgress({ status: 'downloading', percent: pct, loaded: completed, total, message: `Tải: ${completed}/${total} (${pct}%)` });
       }
     };
 
-    const workers = [];
-    for (let i = 0; i < Math.min(this.concurrency, totalSegments); i++) {
-      workers.push(worker());
+    await Promise.all(Array.from({ length: Math.min(this.concurrency, total) }, worker));
+
+    if (this.isAborted) throw new Error('Đã hủy tiến trình tải');
+
+    onProgress({ status: 'converting', percent: 88, message: 'Đang phân tích stream...' });
+
+    const validBuffers = buffers.filter(Boolean);
+    console.log(`[VDP-M3U8] ✅ Đã tải ${validBuffers.length}/${total} segment thành công`);
+    if (!validBuffers.length) throw new Error('Không có segment nào tải được (toàn bộ 403). Hãy refresh trang, play lại video và tải ngay lập tức khi token còn sống.');
+
+    const streamType = StreamInspector.detectStreamType(validBuffers);
+    console.log(`[VDP-M3U8] Stream type: ${streamType}, outputFormat: ${outputFormat}`);
+
+    let blob;
+    let ext = 'mp4';
+
+    // Nếu người dùng chọn TS và stream thực sự là MPEG-TS
+    if (outputFormat === 'ts') {
+      if (streamType !== 'MPEG-TS') {
+        throw new Error('Định dạng stream không phải MPEG-TS, không thể tải raw TS. Vui lòng chọn MP4.');
+      }
+      // Ghép các buffer đã giải mã thành 1 blob TS
+      const combined = BufferUtils.concatenateBuffers(validBuffers);
+      blob = new Blob([combined], { type: 'video/mp2t' });
+      ext = 'ts';
+      console.log(`[VDP-M3U8] ✅ Đã ghép raw TS (${validBuffers.length} segments) → ${(combined.byteLength / 1024 / 1024).toFixed(2)} MB`);
+    } else {
+      // Mặc định: xuất MP4
+      if (streamType === 'fMP4') {
+        blob = await FMP4Builder.build({ buffers, initSegmentUrl, fetchRawFn: (url, isKey) => this.fetchProxy.fetchRaw(url, isKey), clipRange });
+      } else if (streamType === 'MPEG-TS') {
+        blob = await TSBuilder.build(validBuffers);
+      } else {
+        throw new Error('Không nhận dạng được định dạng (fMP4 / MPEG-TS)');
+      }
+      ext = 'mp4';
     }
 
-    await Promise.all(workers);
+    onProgress({ status: 'saving', percent: 98, message: 'Đang lưu file...' });
+    await this._saveBlob(blob, title, ext);
+    onProgress({ status: 'completed', percent: 100, message: `✅ Đã lưu: ${title}` });
+  }
 
-    if (this.isAborted) {
-      throw new Error('Đã hủy quá trình tải');
-    }
-
-    // 3. Ghép file & Remux sang MP4
-    onProgress({ status: 'converting', percent: 95, message: 'Đang ghép luồng và tạo file MP4...' });
-
-    const mp4Blob = TSToMP4Converter.convert(downloadedBuffers);
-
-    // 4. Kích hoạt tải tệp về máy
-    onProgress({ status: 'saving', percent: 99, message: 'Đang lưu file về máy...' });
-
-    const blobUrl = URL.createObjectURL(mp4Blob);
-    const filename = sanitizeFilename(title, 'mp4');
-
-    return new Promise((resolve, reject) => {
-      chrome.downloads.download(
-        {
-          url: blobUrl,
-          filename: filename,
-          saveAs: true
-        },
-        (downloadId) => {
-          // Giao quyền dọn dẹp blobUrl sau khi tải xong
-          setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else {
-            onProgress({ status: 'completed', percent: 100, message: 'Tải thành công!' });
-            resolve(downloadId);
-          }
+  async _fetchDecryptStrip(seg, idx, total, isRetry = false) {
+    const MAX_RETRY = 3;
+    for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+      try {
+        let rawBuf = await this.fetchProxy.fetchRaw(seg.url, false);
+        if (BufferUtils.isErrorResponse(rawBuf)) throw new Error(`Phản hồi lỗi HTML/JSON (${rawBuf.byteLength} bytes) - có thể 403`);
+        if (seg.encryption?.method === 'AES-128') {
+          rawBuf = await this.aesDecryptor.decrypt(rawBuf, seg.encryption);
         }
-      );
+        const u8 = BufferUtils.toUint8Array(rawBuf);
+        const cleanData = this._normalizeSegment(u8);
+        return cleanData.buffer.slice(cleanData.byteOffset, cleanData.byteOffset + cleanData.byteLength);
+      } catch (err) {
+        const msg = err?.message || String(err);
+        console.warn(`[VDP-M3U8] Segment ${idx + 1}/${total} lần ${attempt}${isRetry ? ' (retry token)' : ''}: ${msg}`);
+        if (attempt === MAX_RETRY) throw err;
+        await new Promise((r) => setTimeout(r, 600 * attempt));
+      }
+    }
+  }
+
+  _normalizeSegment(u8) {
+    if (StreamInspector.looksLikeISOBox(u8)) return u8;
+    const tsOffset = StreamInspector.findTSOffset(u8);
+    if (tsOffset >= 0) return tsOffset > 0 ? u8.slice(tsOffset) : u8;
+    return u8;
+  }
+
+  async _saveBlob(blob, title, ext = 'mp4') {
+    const blobUrl = URL.createObjectURL(blob);
+    const filename = sanitizeFilename(title, ext);
+    return new Promise((resolve, reject) => {
+      chrome.downloads.download({ url: blobUrl, filename, saveAs: true }, (id) => {
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else resolve(id);
+      });
     });
   }
 }

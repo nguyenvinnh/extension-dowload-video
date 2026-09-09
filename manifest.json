@@ -1,35 +1,66 @@
 {
   "manifest_version": 3,
   "name": "Video Downloader Pro",
-  "version": "1.2.0",
-  "description": "Tự động phát hiện, lọc thông minh và tải video (bao gồm tự động ghép luồng M3U8/HLS thành MP4).",
+  "version": "1.5.6",
+  "description": "Phát hiện và tải MP4, WEBM, HLS với timeline cắt clip, hỗ trợ AES-128, fix 403 token.",
   "permissions": [
-    "webRequest",
-    "downloads",
-    "activeTab",
-    "scripting",
     "storage",
+    "tabs",
+    "downloads",
+    "scripting",
+    "webRequest",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
     "sidePanel"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
-  "side_panel": {
-    "default_path": "popup/popup.html?mode=sidepanel"
-  },
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content-scripts/media-scanner.js"],
-      "run_at": "document_idle"
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content-scripts/page-hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content-scripts/media-scanner.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "action": {
-    "default_popup": "popup/popup.html",
-    "default_title": "Video Downloader Pro"
-  }
+    "default_title": "Video Downloader Pro",
+    "default_popup": "popup/popup.html"
+  },
+  "side_panel": {
+    "default_path": "popup/popup.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "lib/*",
+        "popup/*",
+        "test/*",
+        "utils/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
 }

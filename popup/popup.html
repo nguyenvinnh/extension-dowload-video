@@ -1,18 +1,21 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Video Downloader Pro</title>
   <link rel="stylesheet" href="popup.css">
 </head>
+
 <body>
   <div class="app-container">
     <!-- Header -->
     <header class="app-header">
       <div class="brand">
         <div class="logo-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
             <polyline points="7 10 12 15 17 10"></polyline>
             <line x1="12" y1="15" x2="12" y2="3"></line>
@@ -26,13 +29,15 @@
 
       <div class="header-actions">
         <button class="icon-btn" id="openSidePanelBtn" title="Ghim sang Thanh bên (Side Panel)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
             <line x1="15" y1="3" x2="15" y2="21"></line>
           </svg>
         </button>
         <button class="icon-btn" id="refreshBtn" title="Làm mới danh sách">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"></polyline>
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
           </svg>
@@ -48,7 +53,8 @@
           <!-- Empty State -->
           <div class="empty-state" id="emptyState">
             <div class="empty-icon">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                stroke-linecap="round" stroke-linejoin="round">
                 <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
                 <line x1="7" y1="2" x2="7" y2="22"></line>
                 <line x1="17" y1="2" x2="17" y2="22"></line>
@@ -70,7 +76,8 @@
         <!-- Top Bar Navigation -->
         <div class="detail-topbar">
           <button class="back-btn" id="backToListBtn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
               <line x1="19" y1="12" x2="5" y2="12"></line>
               <polyline points="12 19 5 12 12 5"></polyline>
             </svg>
@@ -90,7 +97,8 @@
           <div class="timeline-clipper-box" id="timelineClipperBox">
             <div class="timeline-state-actions">
               <button class="state-btn start-state" id="timelineStateBtn">
-                <span id="stateBtnIcon">🟢</span> <span id="stateBtnText">1. Đặt Bắt đầu</span> (<span id="currPlayerTimeLabel">00:00</span>)
+                <span id="stateBtnIcon">🟢</span> <span id="stateBtnText">1. Đặt Bắt đầu</span> (<span
+                  id="currPlayerTimeLabel">00:00</span>)
               </button>
               <button class="state-btn end-of-video-btn" id="clipToEndBtn" style="display: none;">
                 ⏩ Đến hết video
@@ -149,13 +157,24 @@
 
         <!-- Download Action Box -->
         <div class="detail-action-box">
+          <!-- Format selector -->
+          <div class="format-selector" style="margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+            <label for="formatSelect" style="font-size: 12px; color: #94a3b8;">Định dạng:</label>
+            <select id="formatSelect"
+              style="background: #1e293b; color: #f8fafc; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 12px;">
+              <option value="mp4">MP4 (mặc định)</option>
+              <option value="ts">TS (raw)</option>
+            </select>
+          </div>
+
           <button class="download-btn large-btn" id="detailDownloadBtn">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
-            Tải về MP4
+            Tải về
           </button>
           <div class="progress-box" id="detailProgBox" style="display: none;">
             <div class="progress-header">
@@ -173,10 +192,12 @@
     <!-- Footer -->
     <footer class="app-footer">
       <button class="link-btn" id="clearBtn">Xóa lịch sử Tab này</button>
-      <span class="version-tag">v1.4.0</span>
+      <span class="version-tag">v1.5.0</span>
     </footer>
   </div>
 
+  <script src="../lib/mux.min.js"></script>
   <script type="module" src="popup.js"></script>
 </body>
+
 </html>

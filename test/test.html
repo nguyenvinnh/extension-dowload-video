@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Tool - Video Downloader Pro</title>
+  <link rel="stylesheet" href="test.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>Test Tool</h1>
+          <span class="subtitle">Tải .ts, giải mã AES-128, chuyển sang MP4</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" id="backToPopupBtn" title="Quay lại popup">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="app-body">
+      <!-- Input section -->
+      <section class="input-section">
+        <div class="input-row">
+          <label for="m3u8Url">URL M3U8:</label>
+          <input type="text" id="m3u8Url" placeholder="https://example.com/playlist.m3u8" class="test-input">
+          <button id="parseBtn" class="test-btn primary">Phân tích</button>
+        </div>
+        <div class="input-row">
+          <label>Hoặc tải lên file .ts:</label>
+          <input type="file" id="fileUpload" accept=".ts, video/MP2T">
+        </div>
+        <div class="input-row key-row">
+          <label for="keyInput">Key (hex, 32 ký tự):</label>
+          <input type="text" id="keyInput" placeholder="00000000000000000000000000000000" class="test-input key-input">
+          <label for="ivInput">IV (hex, 32 ký tự):</label>
+          <input type="text" id="ivInput" placeholder="00000000000000000000000000000000" class="test-input key-input">
+        </div>
+      </section>
+
+      <!-- Segment list -->
+      <section class="segment-section">
+        <div class="section-header">
+          <h3>Danh sách Segment (<span id="segCount">0</span>)</h3>
+          <div class="section-actions">
+            <button id="selectAllBtn" class="test-btn small">Chọn tất cả</button>
+            <button id="deselectAllBtn" class="test-btn small">Bỏ chọn</button>
+          </div>
+        </div>
+        <div id="segmentList" class="segment-list">
+          <p class="placeholder">Chưa có segment. Hãy phân tích M3U8 hoặc tải file .ts.</p>
+        </div>
+      </section>
+
+      <!-- Action buttons -->
+      <section class="action-section">
+        <button id="fetchDecryptBtn" class="test-btn primary" disabled>Tải & giải mã segment đã chọn</button>
+        <button id="convertMp4Btn" class="test-btn success" disabled>Chuyển thành MP4 (Auto)</button>
+        <button id="downloadTsBtn" class="test-btn" disabled>Tải xuống .ts đã giải mã</button>
+        <button id="downloadMp4Btn" class="test-btn" disabled>Tải xuống MP4</button>
+        <button id="clearDataBtn" class="test-btn danger">Xóa dữ liệu</button>
+      </section>
+
+      <!-- Status / Log -->
+      <section class="log-section">
+        <div class="section-header">
+          <h3>Log chi tiết</h3>
+          <button id="clearLogBtn" class="test-btn small">Xóa log</button>
+        </div>
+        <div id="logContainer" class="log-container"></div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <span class="version-tag">Test v1.0</span>
+    </footer>
+  </div>
+
+  <!-- Load mux.js for TS->MP4 conversion -->
+  <script src="../lib/mux.min.js"></script>
+  <script type="module" src="test.js"></script>
+</body>
+</html>
