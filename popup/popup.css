@@ -82,6 +82,43 @@ body {
   align-items: center;
   gap: 6px;
 }
+.auto-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #34d399;
+  letter-spacing: 0.5px;
+}
+
+.auto-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+  animation: blink-auto 1.5s infinite;
+}
+
+.auto-indicator.pulse {
+  animation: pulse-auto 0.8s ease;
+}
+
+@keyframes blink-auto {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes pulse-auto {
+  0% { transform: scale(1); background: rgba(16, 185, 129, 0.15); }
+  50% { transform: scale(1.1); background: rgba(16, 185, 129, 0.35); }
+  100% { transform: scale(1); background: rgba(16, 185, 129, 0.15); }
+}
 
 .icon-btn {
   background: rgba(255, 255, 255, 0.06);
@@ -101,6 +138,12 @@ body {
   background: rgba(255, 255, 255, 0.15);
   color: #ffffff;
   transform: translateY(-1px);
+}
+/* Side Panel wider layout optimization */
+@media (min-width: 400px) {
+  .app-body { padding: 16px; }
+  .video-card { padding: 14px; }
+  .detail-title { font-size: 15px; }
 }
 
 /* Body & Views */

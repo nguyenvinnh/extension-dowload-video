@@ -2,6 +2,21 @@ import { tabManager } from './tab-manager.js';
 import { detector } from './detector.js';
 
 console.log('[VDP] ✅ Service Worker đã khởi động.');
+// Bật chế độ: Click icon sẽ mở Side Panel thay vì popup
+if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+}
+
+// Đảm bảo side panel luôn enabled cho mọi tab
+chrome.tabs.onUpdated.addListener(async (tabId) => {
+  try {
+    await chrome.sidePanel.setOptions({
+      tabId,
+      path: 'popup/popup.html',
+      enabled: true
+    });
+  } catch {}
+});
 
 // Cache m3u8 content bắt được từ page-hook
 const m3u8Cache = new Map(); // url -> { content, ts }

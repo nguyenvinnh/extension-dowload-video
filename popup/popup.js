@@ -8,9 +8,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const videoListEl = document.getElementById('videoList');
   const emptyStateEl = document.getElementById('emptyState');
   const backToListBtn = document.getElementById('backToListBtn');
-  const refreshBtn = document.getElementById('refreshBtn');
   const clearBtn = document.getElementById('clearBtn');
-  const openSidePanelBtn = document.getElementById('openSidePanelBtn');
   const tabIndicator = document.getElementById('tabIndicator');
 
   const detailTitle = document.getElementById('detailTitle');
@@ -48,6 +46,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Lấy tham chiếu đến dropdown chọn định dạng
   const formatSelect = document.getElementById('formatSelect');
+  const autoIndicator = document.getElementById('autoIndicator');
 
   let activeTabId = null;
   let activeTabUrl = null;
@@ -57,58 +56,96 @@ document.addEventListener('DOMContentLoaded', async () => {
   let pendingStartStr = '';
   let savedClipRanges = [];
   let manualClipRanges = [];
+  let autoPollInterval = null;
 
-  async function getCurrentVideoTab() {
+  // === SIDE PANEL ONLY: Lấy tab active hiện tại ===
+  async function getActiveTabForSidePanel() {
     try {
+      // Ưu tiên tab active của window đang focus side panel
       let tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      if (tabs && tabs[0] && !tabs[0].url?.includes('popup.html') && !tabs[0].url?.startsWith('chrome://')) return tabs[0];
-      tabs = await chrome.tabs.query({ active: true });
-      const validTab = tabs?.find(t => t.url && !t.url.includes('popup.html') && !t.url.startsWith('chrome://'));
+      let validTab = tabs?.find(t => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('chrome-extension://') && !t.url.startsWith('edge://'));
       if (validTab) return validTab;
+      tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      validTab = tabs?.find(t => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('chrome-extension://'));
+      if (validTab) return validTab;
+      // Fallback: bất kỳ tab nào không phải extension
+      tabs = await chrome.tabs.query({ active: true });
+      return tabs?.find(t => t.url && !t.url.includes('popup.html') && !t.url.startsWith('chrome://')) || null;
     } catch { }
     return null;
   }
 
-  async function refreshActiveTab() {
-    const tab = await getCurrentVideoTab();
+  async function refreshActiveTab(forceReload = false) {
+    const tab = await getActiveTabForSidePanel();
     if (tab && tab.id) {
       const isNewTab = activeTabId !== tab.id;
-      activeTabId = tab.id;
-      activeTabUrl = tab.url;
-      if (tab.title) tabIndicator.textContent = tab.title.substring(0, 30) + '...';
-      console.log(`[VDP-Popup] 📌 Active tab: id=${activeTabId}, title="${tab.title}", url=${activeTabUrl?.substring(0, 80)}`);
-      if (isNewTab || detailView.style.display === 'none') loadMediaList();
+      if (isNewTab || forceReload || !activeTabId) {
+        activeTabId = tab.id;
+        activeTabUrl = tab.url;
+        if (tab.title) tabIndicator.textContent = tab.title.substring(0, 40) + '...';
+        else tabIndicator.textContent = new URL(tab.url).hostname;
+        console.log(`[VDP-SidePanel] 📌 Active tab: id=${activeTabId}, title="${tab.title}", url=${activeTabUrl?.substring(0, 80)}`);
+        if (detailView.style.display === 'none') {
+          await loadMediaList();
+        }
+      } else {
+        // Cùng tab nhưng URL có thể đổi, vẫn cập nhật indicator
+        activeTabUrl = tab.url;
+        if (tab.title) tabIndicator.textContent = tab.title.substring(0, 40) + '...';
+      }
+    } else {
+      tabIndicator.textContent = 'Không có tab hoạt động';
     }
   }
 
+  // === AUTO LOAD: Lắng nghe sự kiện tab thay đổi ===
   if (chrome.tabs?.onActivated) {
     chrome.tabs.onActivated.addListener(async (activeInfo) => {
       try {
         const tab = await chrome.tabs.get(activeInfo.tabId);
-        if (tab && tab.url && !tab.url.includes('popup.html') && !tab.url.startsWith('chrome://')) {
+        if (tab && tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
           activeTabId = tab.id;
           activeTabUrl = tab.url;
-          if (tab.title) tabIndicator.textContent = tab.title.substring(0, 30) + '...';
-          console.log(`[VDP-Popup] 🔀 Đã chuyển sang Tab mới: id=${activeTabId}, title="${tab.title}"`);
-          showListView();
+          if (tab.title) tabIndicator.textContent = tab.title.substring(0, 40) + '...';
+          console.log(`[VDP-SidePanel] 🔀 Chuyển Tab: id=${activeTabId}`);
+          // Auto show list view khi chuyển tab
+          if (detailView.style.display !== 'none') {
+            // Nếu đang xem detail, không auto quay lại để tránh mất trạng thái cắt
+          } else {
+            await loadMediaList();
+          }
         }
       } catch (_) { }
     });
   }
 
   if (chrome.tabs?.onUpdated) {
-    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-      if (tabId === activeTabId) {
-        if (changeInfo.title) tabIndicator.textContent = tab.title.substring(0, 30) + '...';
-        if (changeInfo.status === 'complete' && detailView.style.display === 'none') loadMediaList();
+    chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+      if (tabId === activeTabId && detailView.style.display === 'none') {
+        if (changeInfo.title) tabIndicator.textContent = tab.title.substring(0, 40) + '...';
+        if (changeInfo.status === 'complete' || changeInfo.url) {
+          console.log(`[VDP-SidePanel] 🔄 Tab ${tabId} updated: ${changeInfo.status || changeInfo.url}`);
+          await loadMediaList();
+        }
+      }
+      // Nếu tab active hiện tại chưa xác định, thử detect lại
+      if (!activeTabId && changeInfo.status === 'complete') {
+        await refreshActiveTab(true);
       }
     });
   }
 
+  // Lắng nghe từ background khi có video mới
   chrome.runtime.onMessage.addListener((message) => {
-    if (message.action === 'MEDIA_UPDATED' && message.tabId === activeTabId) {
-      console.log(`[VDP-Popup] 🔔 MEDIA_UPDATED tabId=${message.tabId}`);
+    if ((message.action === 'MEDIA_UPDATED' || message.action === 'MEDIA_DETECTED') && message.tabId === activeTabId) {
+      console.log(`[VDP-SidePanel] 🔔 ${message.action} tabId=${message.tabId} -> auto reload`);
+      // Auto reload không cần user bấm refresh
       loadMediaList();
+      // Hiệu ứng nháy auto indicator
+      if (autoIndicator) {
+        autoIndicator.classList.add('pulse');
+        setTimeout(() => autoIndicator.classList.remove('pulse'), 1000);
+      }
     }
   });
 
@@ -206,24 +243,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await refreshActiveTab();
 
-  openSidePanelBtn.addEventListener('click', async () => {
-    try {
-      if (chrome.sidePanel?.open) {
-        const currentWin = await chrome.windows.getCurrent();
-        if (currentWin?.id) { await chrome.sidePanel.open({ windowId: currentWin.id }); window.close(); return; }
-      }
-    } catch { }
-    chrome.tabs.create({ url: chrome.runtime.getURL('popup/popup.html?mode=sidepanel') }); window.close();
-  });
-
+  // === CORE AUTO LOAD LOGIC ===
   async function loadMediaList() {
-    if (!activeTabId) return;
+    if (!activeTabId) {
+      await refreshActiveTab();
+      if (!activeTabId) return;
+    }
     chrome.runtime.sendMessage({ action: 'GET_MEDIA_LIST', tabId: activeTabId }, (response) => {
       if (chrome.runtime.lastError) return;
       if (response?.success && Array.isArray(response.data)) renderVideoList(response.data);
       else renderVideoList([]);
     });
   }
+
   function renderVideoList(mediaItems) {
     videoListEl.innerHTML = '';
     if (!mediaItems.length) { videoListEl.appendChild(emptyStateEl); emptyStateEl.style.display = 'flex'; return; }
@@ -289,10 +321,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   backToListBtn.addEventListener('click', showListView);
-  refreshBtn.addEventListener('click', loadMediaList);
   clearBtn.addEventListener('click', () => {
     if (!activeTabId) return;
     chrome.runtime.sendMessage({ action: 'CLEAR_TAB_MEDIA', tabId: activeTabId }, () => { if (selectedMedia) showListView(); else loadMediaList(); });
   });
-  loadMediaList();
+
+  // === AUTO POLLING 2s để bắt kịp tab mới nhất (side panel không focus) ===
+  function startAutoPolling() {
+    if (autoPollInterval) clearInterval(autoPollInterval);
+    autoPollInterval = setInterval(async () => {
+      // Chỉ auto refresh list khi đang ở list view để không làm gián đoạn khi đang cắt clip
+      if (detailView.style.display === 'none') {
+        await refreshActiveTab();
+      }
+    }, 2000);
+  }
+
+  startAutoPolling();
+
+  // Load ngay khi mở side panel
+  await loadMediaList();
+
+  console.log('[VDP-SidePanel] ✅ Side Panel Only Mode - Auto Load Enabled');
 });

@@ -28,20 +28,10 @@
       </div>
 
       <div class="header-actions">
-        <button class="icon-btn" id="openSidePanelBtn" title="Ghim sang Thanh bên (Side Panel)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-            <line x1="15" y1="3" x2="15" y2="21"></line>
-          </svg>
-        </button>
-        <button class="icon-btn" id="refreshBtn" title="Làm mới danh sách">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"></polyline>
-            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-          </svg>
-        </button>
+        <div class="auto-indicator" id="autoIndicator" title="Tự động quét">
+          <span class="auto-dot"></span>
+          <span class="auto-text">AUTO</span>
+        </div>
       </div>
     </header>
 
@@ -66,7 +56,7 @@
               </svg>
             </div>
             <p class="empty-title">Chưa tìm thấy video nào</p>
-            <p class="empty-desc">Hãy phát (play) video trên trang web để extension tự động nhận diện.</p>
+            <p class="empty-desc">Đang tự động quét... Hãy phát (play) video trên trang web để tự động nhận diện.</p>
           </div>
         </div>
       </section>
@@ -192,7 +182,7 @@
     <!-- Footer -->
     <footer class="app-footer">
       <button class="link-btn" id="clearBtn">Xóa lịch sử Tab này</button>
-      <span class="version-tag">v1.5.0</span>
+      <span class="version-tag">v2.0.0 • Side Panel • Auto</span>
     </footer>
   </div>
 

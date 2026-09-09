@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Video Downloader Pro",
-  "version": "1.5.6",
+  "version": "0.0.1",
   "description": "Phát hiện và tải MP4, WEBM, HLS với timeline cắt clip, hỗ trợ AES-128, fix 403 token.",
   "permissions": [
     "storage",
@@ -44,8 +44,7 @@
     }
   ],
   "action": {
-    "default_title": "Video Downloader Pro",
-    "default_popup": "popup/popup.html"
+    "default_title": "Video Downloader Pro - Mở Side Panel"
   },
   "side_panel": {
     "default_path": "popup/popup.html"
